@@ -1,0 +1,8 @@
+<?php
+
+EsetConfig::$base_path = '/var/www/eset';
+EsetConfig::$downloaded_languages = 'enu,csy';
+EsetConfig::$email = '';
+
+require_once __DIR__ . '/getFreshCredentials.php';
+EsetUtils::$refreshPasswordCallable = 'getFreshCredentials';
