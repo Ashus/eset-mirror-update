@@ -1,8 +1,44 @@
 <?php
 
+// recheck completion of every datafile each execution :  false - faster - mimics NOD32; true - slower, safer for unstable networks
+//EsetConfig::$force_check = false;
+
+// clean-up old unused *.nup files - saves disk space:  false | true
+//EsetConfig::$clean_unused = true;
+
+// show each downloaded file in log:  false | true
+//EsetConfig::$debug = false;
+
+// what languages to download, comma separated values from the list 'bgr,csy,dan,deu,enu,esn,fin,fra,hrv,hun,chs,cht,ita,nld,nor,plk,ptb,rom,rus,sky,slv,sve,trk,ukr'
+//EsetConfig::$downloaded_languages = 'enu';
+
+// unrar method - '' - use internal php mod_rar v2 or higher; use any non-empty string as an external command - 'unrar-free'
+// - external command should contain placeholders {sourceFile} and {destDir} `unrar-free -x {sourceFile} {destDir}` => `unrar-free -x /tmp/file.rar /tmp/`
+//EsetConfig::$unrar_method = 'unrar-free -x {sourceFile} {destDir}';
+
+// list of update servers to use
+//EsetConfig::$eset_server_list = ['update.eset.com'];
+
+// local temp folder, must exist and be writeable eg. /tmp
+//EsetConfig::$temp_path = '/tmp';
+
+// local shared folder eg. /var/www/eset
+// - $base_path is our VirtualHost's DocumentRoot
 EsetConfig::$base_path = '/var/www/eset';
-EsetConfig::$downloaded_languages = 'enu,csy';
+
+// download eset updates for versions 3/4/5 and v9, to update just 3/4/5, remove the second value
+//EsetConfig::$base_dirs = ['', '/v9'];
+
+// email to send authentication error info to
 EsetConfig::$email = '';
 
+// credentials to use for authentication with ESET servers
+// - option a) static credentials
+//EsetConfig::$user = '';
+//EsetConfig::$pass = '';
+// - option b) automatic credentials retrieval, refreshPasswordCallable must point to a function:
+//             that is able to retrieve fresh username and password from some source,
+//             optionally saves the value using EsetConfig::saveAndApplyCredentials($user, $pass)
+//             returns true or false if new credentials were successfully retrieved
 require_once __DIR__ . '/getFreshCredentials.php';
-EsetUtils::$refreshPasswordCallable = 'getFreshCredentials';
+EsetConfig::$refreshPasswordCallable = 'getFreshCredentials';

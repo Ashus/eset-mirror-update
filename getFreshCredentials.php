@@ -1,5 +1,10 @@
 #!/usr/bin/php
 <?php
+/**
+ * Created by Ashus, all rights reserved
+ * https://ashus.ashus.net/viewtopic.php?f=3&t=153
+ * https://github.com/Ashus/eset-update
+ */
 
 require_once __DIR__ . '/inc.classes.php';
 
@@ -34,14 +39,11 @@ function getFreshCredentials() {
 		}
 // 		var_dump($klist); exit;
 		$key = $klist[mt_rand(0, count($klist) - 1)];
-		file_put_contents(__DIR__ . EsetConfig::CREDENTIALS_FILE, $key);
+		$data = explode("\n", $key);
 
-		if (EsetConfig::$initialized) {
-			$data = explode("\n", $key);
-			EsetConfig::$user = $data[0];
-			EsetConfig::$pass = $data[1];
+		EsetConfig::saveAndApplyCredentials($data[0], $data[1]);
+		if (EsetConfig::$initialized)
 			sleep(1);
-		}
 		return true;
 	}
 

@@ -1,60 +1,45 @@
 <?php
+/**
+ * Created by Ashus, all rights reserved
+ * https://ashus.ashus.net/viewtopic.php?f=3&t=153
+ * https://github.com/Ashus/eset-update
+ */
 
 class EsetConfig {
 	const FORCE_CHECK_TEMPFILE = '/esetupdate.force-check.tmp';
 	const DOWNLOAD_TEMPFILE = '/esetupdate.download.tmp';
 	const CREDENTIALS_FILE = '/credentials.txt';
 
+	private static $all_languages = 'bgr,csy,dan,deu,enu,esn,fin,fra,hrv,hun,chs,cht,ita,nld,nor,plk,ptb,rom,rus,sky,slv,sve,trk,ukr';
+	private static $excluded_languages_joined = '';
+
 	public static $initialized = false;
+	public static $force_check = false;
+	public static $clean_unused = true;
+	public static $debug = false;
+	public static $downloaded_languages = 'enu';
+	public static $unrar_method = 'unrar-free -x {sourceFile} {destDir}';
+	public static $eset_server_list = ['update.eset.com'];
+	public static $temp_path = '/tmp';
+	public static $base_path = '';
+	public static $base_dirs = ['', '/v9'];
+	public static $user = '';
+	public static $pass = '';
+	public static $email = '';
+	/* @var string */
+	public static $eset_server;
+	/* @var callable */
+	public static $refreshPasswordCallable;
 
-	// recheck completion of every datafile each execution :  false - faster - mimics NOD32; true - slower, safer for unstable networks
-	static public $force_check = false;
-
-	// clean-up old unused *.nup files - saves disk space:  false | true
-	static public $clean_unused = true;
-
-	// show individual downloaded files in log:  false | true
-	static public $debug = false;
-
-	static private $all_languages = 'bgr,csy,dan,deu,enu,esn,fin,fra,hrv,hun,chs,cht,ita,nld,nor,plk,ptb,rom,rus,sky,slv,sve,trk,ukr';
-	// what languages to download, comma separated from the list above
-	static public $downloaded_languages = 'enu';
-
-	// unrar method - '' - use internal php mod_rar v2 or higher; use any non-empty string as an external command - 'unrar-free'
-	// - external command should contain placeholders {sourceFile} and {destDir} `unrar-free -x {sourceFile} {destDir}` => `unrar-free -x /tmp/file.rar /tmp/`
-	static public $unrar_method = 'unrar-free -x {sourceFile} {destDir}';
-
-	// list of update servers to use
-	static public $eset_server_list = ['update.eset.com'];
-	static public $eset_server;
-
-	// local temp folder, must exist and be writeable eg. /tmp
-	static public $temp_path = '/tmp';
-
-	// local shared folder eg. /var/www/eset
-	// $base_path is our VirtualHost's DocumentRoot
-	static public $base_path = '';
-
-	// download eset updates for versions 3/4/5 and v9
-	static public $base_dirs = ['', '/v9'];
-
-	static public $user = '';
-	static public $pass = '';
-
-	// email to send authentication error info to
-	static public $email = '';
-
-	static private $excluded_languages_joined = '';
-
-	static public function randomizeServer() {
+	public static function randomizeServer() {
 		static::$eset_server = static::$eset_server_list[mt_rand(0, count(static::$eset_server_list) - 1)];
 	}
 
-	static public function getExcludedLanguagesRegexpPart() {
+	public static function getExcludedLanguagesRegexpPart() {
 		return static::$excluded_languages_joined;
 	}
 
-	static private function loadCredentials() {
+	private static function loadCredentials() {
 		if (!is_readable(__DIR__ . static::CREDENTIALS_FILE))
 			return;
 		$t = explode("\n", file_get_contents(__DIR__ . static::CREDENTIALS_FILE));
@@ -62,28 +47,35 @@ class EsetConfig {
 		static::$pass = trim($t[1]);
 	}
 
-	static public function initialize() {
+	public static function saveAndApplyCredentials($user, $pass) {
+		file_put_contents(__DIR__ . EsetConfig::CREDENTIALS_FILE, $user . "\n" . $pass);
+		static::$user = $user;
+		static::$pass = $pass;
+	}
+
+	public static function initialize() {
 		// determine languages to skip
 		$all_languages = explode(',', static::$all_languages);
 		$downloaded_languages = explode(',', static::$downloaded_languages);
 		static::$excluded_languages_joined = implode('|', array_diff($all_languages, $downloaded_languages));
 
 		// load credentials
-		static::loadCredentials();
 		if (empty(static::$user) || empty(static::$pass))
-			die('Credentials file ' . static::CREDENTIALS_FILE . ' not found or empty. First line should be username, second the password.');
+			static::loadCredentials();
+		if (empty(static::$user) || empty(static::$pass))
+			die('Credentials were not set statically, file ' . static::CREDENTIALS_FILE . ' was not found or empty. First line should be username, second the password.');
 
 		// parse CLI parameters
 		global $argv;
 		if (isset($argv[1])) {
-			foreach ($argv as $par) {
+			$pars = $argv;
+			array_shift($pars);
+			foreach ($pars as $par) {
 				$cleanPar = ltrim($par, '-/');
 				if ($cleanPar == 'h' || $cleanPar == 'help') {
-					die('Available parameters:' . "\n"
-						.'   noemail		does not send an e-mail if there is a problem with authorization' . "\n"
-						.'   check			forces full re-check' . "\n"
-						.'   debug			shows verbose messages' . "\n"
-					);
+					EsetUpdate::banner();
+					EsetUpdate::usage();
+					exit;
 				} elseif ($cleanPar == 'noemail') {
 					static::$email = null;
 				} else if ($cleanPar == 'check') {
@@ -92,6 +84,13 @@ class EsetConfig {
 					static::$debug = true;
 				}
 			}
+		}
+
+		// check all files if last update was not successful
+		if (is_file(EsetConfig::$temp_path . EsetConfig::FORCE_CHECK_TEMPFILE)) {
+			echo 'Note: Full forced check detected from previous unsuccessful run.' . "\n";
+			EsetConfig::$force_check = true;
+			unlink(EsetConfig::$temp_path . EsetConfig::FORCE_CHECK_TEMPFILE);
 		}
 
 		static::$initialized = true;
@@ -163,13 +162,11 @@ class EsetUtils {
 		return number_format($a, ($c ? 2 : 0), ",", " ") . " " . $unim[$c];
 	}
 
-	public static $refreshPasswordCallable;
-
 	public static function checkForUnauthorized($content) {
 		if ((strpos($content, 'HTTP/1.1 401 Unauthorized') !== false) || (strpos($content, '401 Authorization Required') !== false)) {
-			if (is_callable(EsetUtils::$refreshPasswordCallable)) {
+			if (is_callable(EsetConfig::$refreshPasswordCallable)) {
 				echo 'Note: Trying to get fresh credentials.' . "\n";
-				if (!call_user_func(EsetUtils::$refreshPasswordCallable)) {
+				if (!call_user_func(EsetConfig::$refreshPasswordCallable)) {
 					if (EsetConfig::$email) {
 						mail(EsetConfig::$email,
 							'ESET update server needs password',
@@ -225,6 +222,272 @@ class EsetFileHandle {
 		curl_setopt($this->ch, CURLOPT_NOBODY, false);
 		curl_setopt($this->ch, CURLOPT_FILE, $stream);
 		curl_exec($this->ch);
+	}
+
+}
+
+class EsetUpdateResult {
+	/* @var bool */
+	public $all_ok = true;
+	/* @var int */
+	public $updated_files = 0;
+	/* @var int */
+	public $total_size = 0;
+}
+
+class EsetUpdate {
+	private static $updateVerCompressedContent = [];
+	private static $updateFiles = [];
+	/* @var EsetUpdateResult */
+	private static $result;
+
+	public static function banner() {
+		echo  '-------------------------' . "\n"
+			. '-  EsetUpdate by Ashus  -' . "\n"
+			. '-------------------------' . "\n" . "\n";
+	}
+
+	public static function usage() {
+		echo  'Available parameters:' . "\n"
+			. '   --noemail         does not send an e-mail if there is a problem with authorization' . "\n"
+			. '   --check           forces full re-check' . "\n"
+			. '   --debug           shows verbose messages' . "\n";
+	}
+
+	public static function update() {
+		static::reportBegin();
+		static::downloadMetaFiles();
+		static::downloadUpdateFiles();
+		static::updateMetaFiles();
+		static::forceFullCheckIfNeeded();
+		static::reportSummary();
+		static::cleanOldUpdateFiles();
+	}
+
+	private static function downloadMetaFiles() {
+		$data = null;
+
+		foreach (EsetConfig::$base_dirs as $base_suffix) {
+			// download update.ver meta info
+			for ($i = 3; $i > 0; $i--) {
+				EsetConfig::randomizeServer();
+
+				$data = EsetUtils::getEsetProtectedFile('/eset_upd' . $base_suffix . '/update.ver');
+				if (!$data) {
+					echo 'Could not connect to server ' . EsetConfig::$eset_server . '.' . "\n";
+					if ($i == 1) {
+						die('Maximum tries reached. Bye.' . "\n");
+					}
+				}
+
+				if (!EsetUtils::checkForUnauthorized($data))
+					break;
+			}
+
+			if ((is_file(EsetConfig::$base_path . $base_suffix . '/update.ver')) &&
+				(md5_file(EsetConfig::$base_path . $base_suffix . '/update.ver', true) == md5($data, true))
+			) {
+				if (EsetConfig::$force_check) {
+					echo 'Note: Update.ver checksum is the same, however force checking is enabled.' . "\n";
+				} else {
+					die('Update.ver checksum is the same, update not needed. Bye.' . "\n");
+				}
+			}
+
+			file_put_contents(EsetConfig::$temp_path . '/nod32update.rar', $data);
+
+
+			if (empty(EsetConfig::$unrar_method)) {
+
+				if (in_array('rar', stream_get_wrappers())) {
+					// extract update.ver from RAR to variable   uses PECL mod_rar 3.0
+					$update_ver = '';
+					$rar_file = @fopen('rar://' . urlencode(EsetConfig::$temp_path) . '/nod32update.rar#update.ver', 'r');
+					if ($rar_file === false)
+						die('Could not extract update.ver, mod_rar 3.0 failed. Bye.' . "\n");
+					while ($s = @fread($rar_file, 1024)) {
+						$update_ver .= $s;
+					}
+					@fclose($rar_file);
+				} else {
+					// extract update.ver from RAR to variable   uses PECL mod_rar 2.0
+					if (function_exists('rar_open') && function_exists('rar_list') && function_exists('rar_close')) {
+						$rar_arch = @rar_open(EsetConfig::$temp_path . '/nod32update.rar');
+						if ($rar_arch === false)
+							die('Could not extract update.ver, mod_rar 2.0 failed. Bye.' . "\n");
+
+						list($rar_entry) = rar_list($rar_arch);
+						/** @var object $rar_entry */
+						$rar_stream = $rar_entry->getStream();
+						$update_ver = stream_get_contents($rar_stream);
+						fclose($rar_stream);
+						rar_close($rar_arch);
+					} else {
+						die('Could not extract update.ver, no rar module found. Bye.' . "\n");
+					}
+				}
+
+			} else {
+
+				// external exec
+				if (is_file(EsetConfig::$temp_path . '/update.ver')) {
+					unlink(EsetConfig::$temp_path . '/update.ver');
+				}
+				$cmd = strtr(EsetConfig::$unrar_method, [
+					'{sourceFile}' => '"' . EsetConfig::$temp_path . '/nod32update.rar"',
+					'{destDir}' => '"' . EsetConfig::$temp_path . '/"']);
+				$res3 = exec($cmd, $res2, $res);
+				if (($res != 0) || (!is_file(EsetConfig::$temp_path . '/update.ver'))) {
+					die('Update.ver failed to extract [' . $res3 . ']. Bye.' . "\n");
+				}
+
+				$update_ver = file_get_contents(EsetConfig::$temp_path . '/update.ver');
+				unlink(EsetConfig::$temp_path . '/update.ver');
+			}
+
+
+			if ($update_ver == '') {
+				die('Update.ver failed to extract. Bye.' . "\n");
+			}
+
+			static::$updateVerCompressedContent[$base_suffix] = file_get_contents(EsetConfig::$temp_path . '/nod32update.rar');
+			unlink(EsetConfig::$temp_path . '/nod32update.rar');
+
+			// find all update files
+			preg_match_all('`\sfile=(.*\.nup)\s`', $update_ver, $update_new);
+			static::$updateFiles = array_merge(static::$updateFiles, $update_new[1]);
+		}
+	}
+
+	private static function downloadUpdateFiles() {
+		static::$result = new EsetUpdateResult();
+
+		foreach (static::$updateFiles as $upd_file) {
+			// skip excluded languages
+			if (preg_match('`_(' . EsetConfig::getExcludedLanguagesRegexpPart() . ')\.nup$`', $upd_file)) {
+				if (EsetConfig::$debug)
+					echo ' - skipped (wrong lang): ' . $upd_file . "\n";
+				continue;
+			}
+
+			$fileHandle = new EsetFileHandle($upd_file);
+			$info = $fileHandle->getInfo();
+
+			if (EsetUtils::checkForUnauthorized($info)) {
+				EsetConfig::$clean_unused = false;
+				continue;
+			}
+
+			$time_modified = 0;
+			if (preg_match('`\sLast\-Modified\: (.*)$`im', $info, $time)) {
+				$time_modified = strtotime(trim($time[1]));
+			} else {
+				echo 'Failed to receive modification time from header of ' . $upd_file . '. Downloading again.' . "\n";
+			}
+
+			$size = -1;
+			if (preg_match('`\Content\-Length\: (.*)$`im', $info, $size)) {
+				$size = (float)(trim($size[1]));
+			} else {
+				echo 'Failed to receive filesize from header of ' . $upd_file . '.' . "\n";
+			}
+
+			if ((!is_file(EsetConfig::$base_path . $upd_file)) ||
+				($time_modified < filemtime(EsetConfig::$base_path . $upd_file)) ||
+				($size != filesize(EsetConfig::$base_path . $upd_file))
+			) {
+
+				// download complete file
+				if (EsetConfig::$debug) {
+					echo ' - downloading: ' . $upd_file . '' . "\n";
+				}
+
+				$dir = dirname(EsetConfig::$base_path . $upd_file);
+				if (!is_dir($dir)) {
+					mkdir($dir, 0777, true);
+				}
+
+				$df = fopen(EsetConfig::$temp_path . EsetConfig::DOWNLOAD_TEMPFILE, 'w');
+				$fileHandle->getContentsToStream($df);
+				unset($fileHandle);
+				fclose($df);
+
+				clearstatcache();
+				$size_real = filesize(EsetConfig::$temp_path . EsetConfig::DOWNLOAD_TEMPFILE);
+				if ($size_real > 0) {
+					rename(EsetConfig::$temp_path . EsetConfig::DOWNLOAD_TEMPFILE, EsetConfig::$base_path . $upd_file);
+					static::$result->updated_files++;
+					static::$result->total_size += $size_real;
+
+					if ($size_real == $size) {
+						touch(EsetConfig::$base_path . $upd_file, $time_modified);
+					} else {
+						touch(EsetConfig::$base_path . $upd_file, ($time_modified - 3600));
+						static::$result->all_ok = false;
+						echo 'Warning: Filesize of ' . $upd_file . ' is different than expected, will be retried on next run.' . "\n";
+					}
+
+				} else {
+					touch(EsetConfig::$base_path . $upd_file, ($time_modified - 3600));
+					static::$result->all_ok = false;
+					echo 'Warning: Filesize of ' . $upd_file . ' is zero, keeping old file.' . "\n";
+					unlink(EsetConfig::$temp_path . EsetConfig::DOWNLOAD_TEMPFILE);
+				}
+
+			}
+		}
+	}
+
+	private static function updateMetaFiles() {
+		foreach (EsetConfig::$base_dirs as $base_suffix) {
+			$dir = EsetConfig::$base_path . $base_suffix;
+			if (!is_dir($dir)) {
+				mkdir($dir, 0777, true);
+			}
+			file_put_contents($dir . '/update.ver', static::$updateVerCompressedContent[$base_suffix]);
+		}
+	}
+
+	private static function forceFullCheckIfNeeded() {
+		if (!static::$result->all_ok) {
+			echo 'Note: Forcing full check on next run.' . "\n";
+			file_put_contents(EsetConfig::$temp_path . EsetConfig::FORCE_CHECK_TEMPFILE, '');
+		}
+	}
+
+	private static function reportBegin() {
+		echo 'Update launched: ' . date('Y-m-d H:i:s') . "\n";
+	}
+
+	private static function reportSummary() {
+		echo ((static::$result->updated_files > 0) ? 'Successfully updated ' . static::$result->updated_files . ' files in size of ' . EsetUtils::formatBytes(static::$result->total_size) . '.'
+				: 'All files successfully checked.') . "\n";
+	}
+
+	private static function cleanOldUpdateFiles() {
+		if (static::$result->all_ok && count(static::$updateFiles) && EsetConfig::$clean_unused) {
+			$removed_files = 0;
+			$removed_size = 0;
+
+			$existing_files = EsetUtils::findExistingFilesRecursively(EsetConfig::$base_path);
+
+			foreach ($existing_files as $curfile) {
+				$curfile = str_replace(EsetConfig::$base_path, '', $curfile);
+				if (!in_array($curfile, static::$updateFiles, true)) {
+					$size = filesize(EsetConfig::$base_path . $curfile);
+					if (unlink(EsetConfig::$base_path . $curfile)) {
+						$removed_files++;
+						$removed_size += $size;
+					} else {
+						echo 'Could not remove unused file (' . $curfile . ').' . "\n";
+					}
+				}
+			}
+
+			EsetUtils::RemoveEmptySubFolders(EsetConfig::$base_path);
+
+			echo 'Clean-up complete.' . (($removed_files > 0) ? ' ' . $removed_files . ' files in size of ' . EsetUtils::formatBytes($removed_size) . ' were removed.' : ' No files were removed.') . "\n";
+		}
 	}
 
 }
