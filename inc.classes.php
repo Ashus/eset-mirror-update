@@ -22,7 +22,7 @@ class EsetConfig {
 	public static $eset_server_list = ['update.eset.com'];
 	public static $temp_path = '/tmp';
 	public static $base_path = '';
-	public static $base_dirs = ['', '/v9'];
+	public static $base_dirs = ['']; // '/v9'
 	public static $user = '';
 	public static $pass = '';
 	public static $email = '';
@@ -40,8 +40,9 @@ class EsetConfig {
 	}
 
 	private static function loadCredentials() {
-		if (!is_readable(__DIR__ . static::CREDENTIALS_FILE))
+		if (!is_readable(__DIR__ . static::CREDENTIALS_FILE)) {
 			return;
+		}
 		$t = explode("\n", file_get_contents(__DIR__ . static::CREDENTIALS_FILE));
 		static::$user = trim($t[0]);
 		static::$pass = trim($t[1]);
@@ -60,10 +61,12 @@ class EsetConfig {
 		static::$excluded_languages_joined = implode('|', array_diff($all_languages, $downloaded_languages));
 
 		// load credentials
-		if (empty(static::$user) || empty(static::$pass))
+		if (empty(static::$user) || empty(static::$pass)) {
 			static::loadCredentials();
-		if (empty(static::$user) || empty(static::$pass))
+		}
+		if (empty(static::$user) || empty(static::$pass)) {
 			die('Credentials were not set statically, file ' . static::CREDENTIALS_FILE . ' was not found or empty. First line should be username, second the password.');
+		}
 
 		// parse CLI parameters
 		global $argv;
@@ -78,10 +81,14 @@ class EsetConfig {
 					exit;
 				} elseif ($cleanPar == 'noemail') {
 					static::$email = null;
-				} else if ($cleanPar == 'check') {
-					static::$force_check = true;
-				} else if ($cleanPar == 'debug') {
-					static::$debug = true;
+				} else {
+					if ($cleanPar == 'check') {
+						static::$force_check = true;
+					} else {
+						if ($cleanPar == 'debug') {
+							static::$debug = true;
+						}
+					}
 				}
 			}
 		}
@@ -106,7 +113,8 @@ class EsetUtils {
 		curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
 		curl_setopt($ch, CURLOPT_TIMEOUT, 900);
 		curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-		curl_setopt($ch, CURLOPT_USERAGENT, 'ESS Update (Windows; U; 64bit; BPC 9.0.374.1; OS: 10.0.10586 SP 0.0 NT; TDB 28246; CL 1.1.1; x64c; APP ess; BEO 1; ASP 0.10; RA 0; HWF: 7822CF11-CDFE-4077-92FF-5E6CF5F99ECD; PLOC cs_cz; PCODE 110.0.0; PAR 0; ATH 0; DC 0; PLID 33D-W8W-NCD; SEAT 660a0d66)');
+		curl_setopt($ch, CURLOPT_USERAGENT,
+			'ESS Update (Windows; U; 64bit; BPC 9.0.374.1; OS: 10.0.10586 SP 0.0 NT; TDB 28246; CL 1.1.1; x64c; APP ess; BEO 1; ASP 0.10; RA 0; HWF: 7822CF11-CDFE-4077-92FF-5E6CF5F99ECD; PLOC cs_cz; PCODE 110.0.0; PAR 0; ATH 0; DC 0; PLID 33D-W8W-NCD; SEAT 660a0d66)');
 		curl_setopt($ch, CURLOPT_USERPWD, EsetConfig::$user . ':' . EsetConfig::$pass);
 		return $ch;
 	}
@@ -118,8 +126,9 @@ class EsetUtils {
 	}
 
 	public static function getEsetProtectedFile($request) {
-		if (EsetConfig::$debug)
+		if (EsetConfig::$debug) {
 			echo ' - trying to download http://' . EsetConfig::$eset_server . $request . "\n";
+		}
 
 		$ch = static::initializeCurl();
 		curl_setopt($ch, CURLOPT_URL, 'http://' . EsetConfig::$eset_server . $request);
@@ -130,13 +139,13 @@ class EsetUtils {
 		$path = rtrim($path, "/") . "/";
 		$folder_handle = opendir($path);
 		$exclude_array = explode("|", $exclude);
-		$result = array();
+		$result = [];
 		while (false !== ($filename = readdir($folder_handle))) {
 			if (!in_array(strtolower($filename), $exclude_array)) {
 				if (is_dir($path . $filename . "/")) {
 					$result = array_merge($result, static::findExistingFilesRecursively($path . $filename, $exclude, $include));
 				} else {
-					if (preg_match('`^' . strtr(preg_quote($include, '`'), array('\*' => '.*?', '\?' => '.')) . '$`i', $filename)) {
+					if (preg_match('`^' . strtr(preg_quote($include, '`'), ['\*' => '.*?', '\?' => '.']) . '$`i', $filename)) {
 						$result[] = $path . $filename;
 					}
 				}
@@ -147,13 +156,14 @@ class EsetUtils {
 
 	public static function RemoveEmptySubFolders($path) {
 		$empty = true;
-		foreach (glob($path . DIRECTORY_SEPARATOR . "*") as $file)
+		foreach (glob($path . DIRECTORY_SEPARATOR . "*") as $file) {
 			$empty &= is_dir($file) && static::RemoveEmptySubFolders($file);
+		}
 		return $empty && rmdir($path);
 	}
 
 	public static function formatBytes($a) {
-		$unim = array("B", "KB", "MB", "GB", "TB", "PB");
+		$unim = ["B", "KB", "MB", "GB", "TB", "PB"];
 		$c = 0;
 		while ($a >= 1024) {
 			$c++;
@@ -191,6 +201,10 @@ class EsetUtils {
 		}
 		return false;
 	}
+
+	public static function isIniFileUnpacked($filename) {
+		return strpos(file_get_contents($filename), '.eset.com/eset_upd/') !== false;
+	}
 }
 
 class EsetFileHandle {
@@ -202,8 +216,9 @@ class EsetFileHandle {
 	}
 
 	public function __destruct() {
-		if ($this->ch)
+		if ($this->ch) {
 			curl_close($this->ch);
+		}
 	}
 
 	public function getInfo() {
@@ -242,13 +257,13 @@ class EsetUpdate {
 	private static $result;
 
 	public static function banner() {
-		echo  '-------------------------' . "\n"
+		echo '-------------------------' . "\n"
 			. '-  EsetUpdate by Ashus  -' . "\n"
 			. '-------------------------' . "\n" . "\n";
 	}
 
 	public static function usage() {
-		echo  'Available parameters:' . "\n"
+		echo 'Available parameters:' . "\n"
 			. '   --noemail         does not send an e-mail if there is a problem with authorization' . "\n"
 			. '   --check           forces full re-check' . "\n"
 			. '   --debug           shows verbose messages' . "\n";
@@ -280,8 +295,9 @@ class EsetUpdate {
 					}
 				}
 
-				if (!EsetUtils::checkForUnauthorized($data))
+				if (!EsetUtils::checkForUnauthorized($data)) {
 					break;
+				}
 			}
 
 			if ((is_file(EsetConfig::$base_path . $base_suffix . '/update.ver')) &&
@@ -296,53 +312,59 @@ class EsetUpdate {
 
 			file_put_contents(EsetConfig::$temp_path . '/nod32update.rar', $data);
 
-
-			if (empty(EsetConfig::$unrar_method)) {
-
-				if (in_array('rar', stream_get_wrappers())) {
-					// extract update.ver from RAR to variable   uses PECL mod_rar 3.0
-					$update_ver = '';
-					$rar_file = @fopen('rar://' . urlencode(EsetConfig::$temp_path) . '/nod32update.rar#update.ver', 'r');
-					if ($rar_file === false)
-						die('Could not extract update.ver, mod_rar 3.0 failed. Bye.' . "\n");
-					while ($s = @fread($rar_file, 1024)) {
-						$update_ver .= $s;
-					}
-					@fclose($rar_file);
-				} else {
-					// extract update.ver from RAR to variable   uses PECL mod_rar 2.0
-					if (function_exists('rar_open') && function_exists('rar_list') && function_exists('rar_close')) {
-						$rar_arch = @rar_open(EsetConfig::$temp_path . '/nod32update.rar');
-						if ($rar_arch === false)
-							die('Could not extract update.ver, mod_rar 2.0 failed. Bye.' . "\n");
-
-						list($rar_entry) = rar_list($rar_arch);
-						/** @var object $rar_entry */
-						$rar_stream = $rar_entry->getStream();
-						$update_ver = stream_get_contents($rar_stream);
-						fclose($rar_stream);
-						rar_close($rar_arch);
+			if (!EsetUtils::isIniFileUnpacked(EsetConfig::$temp_path . '/nod32update.rar')) {
+				if (empty(EsetConfig::$unrar_method)) {
+					if (in_array('rar', stream_get_wrappers())) {
+						// extract update.ver from RAR to variable   uses PECL mod_rar 3.0
+						$update_ver = '';
+						$rar_file = @fopen('rar://' . urlencode(EsetConfig::$temp_path) . '/nod32update.rar#update.ver', 'r');
+						if ($rar_file === false) {
+							die('Could not extract update.ver, mod_rar 3.0 failed. Bye.' . "\n");
+						}
+						while ($s = @fread($rar_file, 1024)) {
+							$update_ver .= $s;
+						}
+						@fclose($rar_file);
 					} else {
-						die('Could not extract update.ver, no rar module found. Bye.' . "\n");
+						// extract update.ver from RAR to variable   uses PECL mod_rar 2.0
+						if (function_exists('rar_open') && function_exists('rar_list') && function_exists('rar_close')) {
+							$rar_arch = @rar_open(EsetConfig::$temp_path . '/nod32update.rar');
+							if ($rar_arch === false) {
+								die('Could not extract update.ver, mod_rar 2.0 failed. Bye.' . "\n");
+							}
+
+							list($rar_entry) = rar_list($rar_arch);
+							/** @var object $rar_entry */
+							$rar_stream = $rar_entry->getStream();
+							$update_ver = stream_get_contents($rar_stream);
+							fclose($rar_stream);
+							rar_close($rar_arch);
+						} else {
+							die('Could not extract update.ver, no rar module found. Bye.' . "\n");
+						}
 					}
+
+				} else {
+
+					// external exec
+					if (is_file(EsetConfig::$temp_path . '/update.ver')) {
+						unlink(EsetConfig::$temp_path . '/update.ver');
+					}
+					$cmd = strtr(EsetConfig::$unrar_method, [
+						'{sourceFile}' => '"' . EsetConfig::$temp_path . '/nod32update.rar"',
+						'{destDir}' => '"' . EsetConfig::$temp_path . '/"'
+					]);
+					$res3 = exec($cmd, $res2, $res);
+					if (($res != 0) || (!is_file(EsetConfig::$temp_path . '/update.ver'))) {
+						die('Update.ver failed to extract [' . implode("\n", $res2) . ']. Bye.' . "\n");
+					}
+
+					$update_ver = file_get_contents(EsetConfig::$temp_path . '/update.ver');
+					unlink(EsetConfig::$temp_path . '/update.ver');
 				}
 
 			} else {
-
-				// external exec
-				if (is_file(EsetConfig::$temp_path . '/update.ver')) {
-					unlink(EsetConfig::$temp_path . '/update.ver');
-				}
-				$cmd = strtr(EsetConfig::$unrar_method, [
-					'{sourceFile}' => '"' . EsetConfig::$temp_path . '/nod32update.rar"',
-					'{destDir}' => '"' . EsetConfig::$temp_path . '/"']);
-				$res3 = exec($cmd, $res2, $res);
-				if (($res != 0) || (!is_file(EsetConfig::$temp_path . '/update.ver'))) {
-					die('Update.ver failed to extract [' . $res3 . ']. Bye.' . "\n");
-				}
-
-				$update_ver = file_get_contents(EsetConfig::$temp_path . '/update.ver');
-				unlink(EsetConfig::$temp_path . '/update.ver');
+				$update_ver = file_get_contents(EsetConfig::$temp_path . '/nod32update.rar');
 			}
 
 
@@ -365,8 +387,9 @@ class EsetUpdate {
 		foreach (static::$updateFiles as $upd_file) {
 			// skip excluded languages
 			if (preg_match('`_(' . EsetConfig::getExcludedLanguagesRegexpPart() . ')\.nup$`', $upd_file)) {
-				if (EsetConfig::$debug)
+				if (EsetConfig::$debug) {
 					echo ' - skipped (wrong lang): ' . $upd_file . "\n";
+				}
 				continue;
 			}
 
